@@ -59,6 +59,47 @@ import "snaparecord/styles.css";
 import "./snaparecord/toast.css";
 ```
 
+## Scaffold a starter setup (React)
+
+The package itself is framework-agnostic and ships no React components — but
+since a real app needs the same handful of files every time (a centralized
+API client, an `AuthDataClient` instance, and a React context that ties them
+together with polling), run:
+
+```bash
+npx snaparecord init
+```
+
+This copies editable starter files into your project:
+
+```
+src/
+  api/
+    sessionToken.ts     # holds the live auth token (memory by default)
+    authApi.ts           # createApiClient() — EDIT: baseURL, onError
+    authDataClient.ts     # createAuthDataClient() — EDIT: requests, cache/poll timing
+  contexts/
+    AuthContext.tsx        # <AuthProvider> — EDIT: user shape, login() request/response
+```
+
+Nothing here is generated at runtime or hidden — it's a plain starting point
+meant to be opened and adjusted to your backend's actual endpoints and
+response shapes. Re-running `init` skips files that already exist; add
+`--force` to overwrite, or `--dir <path>` to scaffold somewhere other than
+`src/`.
+
+After scaffolding, wrap your app once:
+
+```tsx
+import { AuthProvider } from "./contexts/AuthContext";
+
+<AuthProvider>
+  <App />
+</AuthProvider>
+```
+
+and consume it anywhere with `useAuth()`.
+
 ## Quick start
 
 ```js
