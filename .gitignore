@@ -1,0 +1,10 @@
+# Dependencies
+node_modules/
+
+# Build output is intentionally NOT ignored — this repo is meant to be
+# cloned and used directly (see README "Using this via GitHub" section),
+# so dist/ is committed and kept up to date on every release.
+
+# Editor/OS cruft
+.DS_Store
+*.log

@@ -1,0 +1,59 @@
+{
+  "name": "snaparecord",
+  "version": "2.0.0",
+  "description": "Universal, framework-agnostic toast notifications + error handling that turns raw HTTP/JS errors (404, 403, 500, network failures, etc.) into human-readable messages. Written in TypeScript, with a JWT-secured, cached, pollable AuthData client built in.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./styles.css": "./src/toast.css"
+  },
+  "files": [
+    "dist",
+    "src/toast.css",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "keywords": [
+    "toast",
+    "notifications",
+    "error-handling",
+    "fetch",
+    "axios",
+    "http-errors",
+    "typescript",
+    "jwt",
+    "auth",
+    "polling",
+    "cache",
+    "ui"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "axios": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "axios": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "jose": "^6.2.4"
+  },
+  "devDependencies": {
+    "axios": "^1.18.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}

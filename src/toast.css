@@ -1,0 +1,126 @@
+.fte-toast-container {
+  position: fixed;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: 380px;
+}
+
+.fte-toast-container[data-position="top-right"] { top: 16px; right: 16px; align-items: flex-end; }
+.fte-toast-container[data-position="top-left"] { top: 16px; left: 16px; align-items: flex-start; }
+.fte-toast-container[data-position="bottom-right"] { bottom: 16px; right: 16px; align-items: flex-end; }
+.fte-toast-container[data-position="bottom-left"] { bottom: 16px; left: 16px; align-items: flex-start; }
+.fte-toast-container[data-position="top-center"] { top: 16px; left: 50%; transform: translateX(-50%); align-items: center; }
+.fte-toast-container[data-position="bottom-center"] { bottom: 16px; left: 50%; transform: translateX(-50%); align-items: center; }
+
+.fte-toast {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 260px;
+  max-width: 380px;
+  padding: 12px 14px;
+  /* Extra bottom padding reserves room for the progress bar so it doesn't overlap the text */
+  padding-bottom: 16px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1a1a1a;
+  background: #ffffff;
+  border-left: 4px solid #999;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.fte-toast[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.fte-toast[data-type="error"] { border-left-color: #e5484d; }
+.fte-toast[data-type="success"] { border-left-color: #30a46c; }
+.fte-toast[data-type="warning"] { border-left-color: #f5a524; }
+.fte-toast[data-type="info"] { border-left-color: #3b82f6; }
+
+.fte-toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  border-radius: 50%;
+  font-size: 12px;
+  color: #fff;
+}
+
+.fte-toast[data-type="error"] .fte-toast-icon { background: #e5484d; }
+.fte-toast[data-type="success"] .fte-toast-icon { background: #30a46c; }
+.fte-toast[data-type="warning"] .fte-toast-icon { background: #f5a524; }
+.fte-toast[data-type="info"] .fte-toast-icon { background: #3b82f6; }
+
+.fte-toast-body { flex: 1; }
+
+.fte-toast-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.fte-toast-message {
+  color: #444;
+}
+
+.fte-toast-close {
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #999;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  margin-left: 4px;
+}
+
+.fte-toast-close:hover { color: #333; }
+
+.fte-toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.fte-toast-progress-bar {
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  transform: scaleX(1);
+  background: #999;
+}
+
+.fte-toast[data-type="error"] .fte-toast-progress-bar { background: #e5484d; }
+.fte-toast[data-type="success"] .fte-toast-progress-bar { background: #30a46c; }
+.fte-toast[data-type="warning"] .fte-toast-progress-bar { background: #f5a524; }
+.fte-toast[data-type="info"] .fte-toast-progress-bar { background: #3b82f6; }
+
+@media (prefers-color-scheme: dark) {
+  .fte-toast {
+    background: #1f1f1f;
+    color: #f2f2f2;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  }
+  .fte-toast-message { color: #cfcfcf; }
+  .fte-toast-close { color: #888; }
+  .fte-toast-progress { background: rgba(255, 255, 255, 0.12); }
+}
