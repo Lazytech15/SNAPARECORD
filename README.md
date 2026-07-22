@@ -26,9 +26,9 @@ installed straight from GitHub.
 **Option A — as a dependency (recommended):**
 
 ```bash
-npm install github:YOUR_USERNAME/snaparecord
+npm install github:Lazytech15/snaparecord
 # or pin to a tag/branch:
-npm install github:YOUR_USERNAME/snaparecord#v1.0.0
+npm install github:Lazytech15/snaparecord#v1.0.0
 ```
 
 `dist/` is committed to this repo, so this works with no build step on your
@@ -37,7 +37,7 @@ end — npm just clones it and you import it like any other package.
 **Option B — clone and copy in:**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/snaparecord.git
+git clone https://github.com/Lazytech15/snaparecord.git
 ```
 
 Then copy `dist/` (and `src/toast.css`) into your project and import from
