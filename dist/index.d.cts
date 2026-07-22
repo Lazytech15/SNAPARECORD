@@ -130,6 +130,56 @@ declare function createApiClient(options?: ApiClientOptions): ApiClient;
  * calling `createApiClient()` yourself and naming the result (see README).
  */
 declare const apiClient: ApiClient;
+/**
+ * A client that only exposes one HTTP verb. Useful when you want it to be
+ * obvious, at the import site, exactly what kind of request a component is
+ * allowed to make (e.g. a read-only component only ever imports the GET client).
+ */
+interface MethodApiClient<T = unknown> {
+    /** The underlying axios instance, for anything not covered below. */
+    raw: AxiosInstance;
+    request(url: string, cfg?: RequestConfig): Promise<T>;
+}
+interface WriteMethodApiClient<T = unknown> {
+    raw: AxiosInstance;
+    request(url: string, data?: unknown, cfg?: RequestConfig): Promise<T>;
+}
+/**
+ * Pre-built client whose only capability is GET. Import this into any
+ * component that only ever *reads* data.
+ *
+ *   import { createGetClient } from "snaparecord";
+ *   export const apiGetClient = createGetClient({ baseURL: "/api" });
+ *   const todo = await apiGetClient.request("/todos/1");
+ */
+declare function createGetClient(options?: ApiClientOptions): MethodApiClient;
+/**
+ * Pre-built client whose only capability is POST. Import this into any
+ * component that only ever *creates* data.
+ *
+ *   import { createPostClient } from "snaparecord";
+ *   export const apiPostClient = createPostClient({ baseURL: "/api" });
+ *   await apiPostClient.request("/todos", { title: "New todo" });
+ */
+declare function createPostClient(options?: ApiClientOptions): WriteMethodApiClient;
+/**
+ * Pre-built client whose only capability is PUT. Import this into any
+ * component that only ever *replaces/updates* data.
+ *
+ *   import { createPutClient } from "snaparecord";
+ *   export const apiPutClient = createPutClient({ baseURL: "/api" });
+ *   await apiPutClient.request("/todos/1", { title: "Updated todo" });
+ */
+declare function createPutClient(options?: ApiClientOptions): WriteMethodApiClient;
+/**
+ * Pre-built client whose only capability is DELETE. Import this into any
+ * component that only ever *removes* data.
+ *
+ *   import { createDeleteClient } from "snaparecord";
+ *   export const apiDeleteClient = createDeleteClient({ baseURL: "/api" });
+ *   await apiDeleteClient.request("/todos/1");
+ */
+declare function createDeleteClient(options?: ApiClientOptions): MethodApiClient;
 
 /** One endpoint to include in a batched AuthData fetch. */
 interface AuthDataRequest {
@@ -231,7 +281,65 @@ declare class AuthDataClient {
 }
 /** Convenience factory, mirroring `createApiClient`. */
 declare function createAuthDataClient(options: AuthDataClientOptions): AuthDataClient;
+/**
+ * A single request entry for one of the method-locked AuthData clients below.
+ * `method` is omitted here on purpose — the client factory (GET/POST/PUT/DELETE)
+ * already pins it, so it can never be set to something else by mistake.
+ */
+type AuthDataMethodRequest = Omit<AuthDataRequest, "method">;
+/** Options for the method-locked AuthData client factories below. */
+type AuthDataMethodClientOptions = Omit<AuthDataClientOptions, "requests"> & {
+    requests: AuthDataMethodRequest[];
+};
+/**
+ * Pre-built AuthData client whose requests are all forced to GET. Import this
+ * into any component that only ever *reads* a bundle of endpoints.
+ *
+ *   import { createGetAuthDataClient } from "snaparecord";
+ *   export const authGetClient = createGetAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "todo", url: "/todos/1" }, { key: "user", url: "/users/1" }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+declare function createGetAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient;
+/**
+ * Pre-built AuthData client whose requests are all forced to POST. Import this
+ * into any component that only ever *creates* data via a batched request.
+ *
+ *   import { createPostAuthDataClient } from "snaparecord";
+ *   export const authPostClient = createPostAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "createTodo", url: "/todos", data: { title: "New todo" } }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+declare function createPostAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient;
+/**
+ * Pre-built AuthData client whose requests are all forced to PUT. Import this
+ * into any component that only ever *updates* data via a batched request.
+ *
+ *   import { createPutAuthDataClient } from "snaparecord";
+ *   export const authPutClient = createPutAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "updateTodo", url: "/todos/1", data: { title: "Updated" } }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+declare function createPutAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient;
+/**
+ * Pre-built AuthData client whose requests are all forced to DELETE. Import this
+ * into any component that only ever *removes* data via a batched request.
+ *
+ *   import { createDeleteAuthDataClient } from "snaparecord";
+ *   export const authDeleteClient = createDeleteAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "deleteTodo", url: "/todos/1" }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+declare function createDeleteAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient;
 
 declare const toast: Record<ToastType, (message: string, title?: string) => string | null>;
 
-export { type ApiClient, type ApiClientOptions, AuthDataClient, type AuthDataClientOptions, type AuthDataRequest, type AuthDataResult, type AuthDataStorage, type ConfigureErrorHandlerOptions, DEFAULT_ERROR_MESSAGES, type ErrorMessageMap, type ErrorStatus, type FriendlyMessage, type HandleErrorOptions, type NormalizedError, type RequestConfig, type ShowToastParams, type ToastOptions, type ToastPosition, type ToastType, apiClient, clearErrorCache, clearToasts, configureErrorHandler, configureToast, createApiClient, createAuthDataClient, createAxiosErrorInterceptor, dismissToast, handleError, normalizeError, setErrorMessage, showToast, toast, wrapFetch };
+export { type ApiClient, type ApiClientOptions, AuthDataClient, type AuthDataClientOptions, type AuthDataMethodClientOptions, type AuthDataMethodRequest, type AuthDataRequest, type AuthDataResult, type AuthDataStorage, type ConfigureErrorHandlerOptions, DEFAULT_ERROR_MESSAGES, type ErrorMessageMap, type ErrorStatus, type FriendlyMessage, type HandleErrorOptions, type MethodApiClient, type NormalizedError, type RequestConfig, type ShowToastParams, type ToastOptions, type ToastPosition, type ToastType, type WriteMethodApiClient, apiClient, clearErrorCache, clearToasts, configureErrorHandler, configureToast, createApiClient, createAuthDataClient, createAxiosErrorInterceptor, createDeleteAuthDataClient, createDeleteClient, createGetAuthDataClient, createGetClient, createPostAuthDataClient, createPostClient, createPutAuthDataClient, createPutClient, dismissToast, handleError, normalizeError, setErrorMessage, showToast, toast, wrapFetch };

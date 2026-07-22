@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "snaparecord";
 import { authApi } from "../api/authApi";
-import { authDataClient } from "../api/authDataClient";
+import { authGetClient } from "../api/authDataClient";
 import { sessionToken } from "../api/sessionToken";
 
 interface AuthContextValue {
@@ -31,14 +31,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    authDataClient
+    authGetClient
       .getData()
       .then(({ data }) => setUser(data))
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
 
-    authDataClient.startPolling();
-    return () => authDataClient.stopPolling();
+    authGetClient.startPolling();
+    return () => authGetClient.stopPolling();
   }, []);
 
   async function login(email: string, password: string) {
@@ -46,19 +46,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await authApi.post<{ token: string }>("/login", { email, password });
     sessionToken.set(res.token);
 
-    const { data } = await authDataClient.getData({ force: true });
+    const { data } = await authGetClient.getData({ force: true });
     setUser(data);
     toast.success("Logged in");
   }
 
   function logout() {
     sessionToken.clear();
-    authDataClient.destroy(); // stops polling + clears the signed cache
+    authGetClient.destroy(); // stops polling + clears the signed cache
     setUser(null);
   }
 
   async function refresh() {
-    const { data } = await authDataClient.getData({ force: true });
+    const { data } = await authGetClient.getData({ force: true });
     setUser(data);
   }
 

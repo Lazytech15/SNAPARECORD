@@ -241,3 +241,85 @@ export class AuthDataClient {
 export function createAuthDataClient(options: AuthDataClientOptions): AuthDataClient {
   return new AuthDataClient(options);
 }
+
+/**
+ * A single request entry for one of the method-locked AuthData clients below.
+ * `method` is omitted here on purpose — the client factory (GET/POST/PUT/DELETE)
+ * already pins it, so it can never be set to something else by mistake.
+ */
+export type AuthDataMethodRequest = Omit<AuthDataRequest, "method">;
+
+/** Options for the method-locked AuthData client factories below. */
+export type AuthDataMethodClientOptions = Omit<AuthDataClientOptions, "requests"> & {
+  requests: AuthDataMethodRequest[];
+};
+
+function createMethodLockedAuthDataClient(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  options: AuthDataMethodClientOptions
+): AuthDataClient {
+  return new AuthDataClient({
+    ...options,
+    requests: options.requests.map((req) => ({ ...req, method })),
+  });
+}
+
+/**
+ * Pre-built AuthData client whose requests are all forced to GET. Import this
+ * into any component that only ever *reads* a bundle of endpoints.
+ *
+ *   import { createGetAuthDataClient } from "snaparecord";
+ *   export const authGetClient = createGetAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "todo", url: "/todos/1" }, { key: "user", url: "/users/1" }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+export function createGetAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
+  return createMethodLockedAuthDataClient("GET", options);
+}
+
+/**
+ * Pre-built AuthData client whose requests are all forced to POST. Import this
+ * into any component that only ever *creates* data via a batched request.
+ *
+ *   import { createPostAuthDataClient } from "snaparecord";
+ *   export const authPostClient = createPostAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "createTodo", url: "/todos", data: { title: "New todo" } }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+export function createPostAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
+  return createMethodLockedAuthDataClient("POST", options);
+}
+
+/**
+ * Pre-built AuthData client whose requests are all forced to PUT. Import this
+ * into any component that only ever *updates* data via a batched request.
+ *
+ *   import { createPutAuthDataClient } from "snaparecord";
+ *   export const authPutClient = createPutAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "updateTodo", url: "/todos/1", data: { title: "Updated" } }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+export function createPutAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
+  return createMethodLockedAuthDataClient("PUT", options);
+}
+
+/**
+ * Pre-built AuthData client whose requests are all forced to DELETE. Import this
+ * into any component that only ever *removes* data via a batched request.
+ *
+ *   import { createDeleteAuthDataClient } from "snaparecord";
+ *   export const authDeleteClient = createDeleteAuthDataClient({
+ *     client: authApi,
+ *     requests: [{ key: "deleteTodo", url: "/todos/1" }],
+ *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *   });
+ */
+export function createDeleteAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
+  return createMethodLockedAuthDataClient("DELETE", options);
+}

@@ -368,6 +368,34 @@ function createApiClient(options = {}) {
   };
 }
 var apiClient = createApiClient();
+function createGetClient(options = {}) {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, cfg) => client.get(url, cfg)
+  };
+}
+function createPostClient(options = {}) {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, data, cfg) => client.post(url, data, cfg)
+  };
+}
+function createPutClient(options = {}) {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, data, cfg) => client.put(url, data, cfg)
+  };
+}
+function createDeleteClient(options = {}) {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, cfg) => client.delete(url, cfg)
+  };
+}
 
 // src/authData.ts
 import { SignJWT, jwtVerify } from "jose";
@@ -510,6 +538,24 @@ var AuthDataClient = class {
 function createAuthDataClient(options) {
   return new AuthDataClient(options);
 }
+function createMethodLockedAuthDataClient(method, options) {
+  return new AuthDataClient({
+    ...options,
+    requests: options.requests.map((req) => ({ ...req, method }))
+  });
+}
+function createGetAuthDataClient(options) {
+  return createMethodLockedAuthDataClient("GET", options);
+}
+function createPostAuthDataClient(options) {
+  return createMethodLockedAuthDataClient("POST", options);
+}
+function createPutAuthDataClient(options) {
+  return createMethodLockedAuthDataClient("PUT", options);
+}
+function createDeleteAuthDataClient(options) {
+  return createMethodLockedAuthDataClient("DELETE", options);
+}
 
 // src/index.ts
 var toast = {
@@ -529,6 +575,14 @@ export {
   createApiClient,
   createAuthDataClient,
   createAxiosErrorInterceptor,
+  createDeleteAuthDataClient,
+  createDeleteClient,
+  createGetAuthDataClient,
+  createGetClient,
+  createPostAuthDataClient,
+  createPostClient,
+  createPutAuthDataClient,
+  createPutClient,
   dismissToast,
   handleError,
   normalizeError,

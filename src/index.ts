@@ -9,8 +9,22 @@ export {
   clearErrorCache,
 } from "./errorHandler.js";
 export { DEFAULT_ERROR_MESSAGES } from "./errorMessages.js";
-export { createApiClient, apiClient } from "./apiClient.js";
-export { AuthDataClient, createAuthDataClient } from "./authData.js";
+export {
+  createApiClient,
+  apiClient,
+  createGetClient,
+  createPostClient,
+  createPutClient,
+  createDeleteClient,
+} from "./apiClient.js";
+export {
+  AuthDataClient,
+  createAuthDataClient,
+  createGetAuthDataClient,
+  createPostAuthDataClient,
+  createPutAuthDataClient,
+  createDeleteAuthDataClient,
+} from "./authData.js";
 
 export type {
   ToastType,
@@ -24,12 +38,20 @@ export type {
   HandleErrorOptions,
   ConfigureErrorHandlerOptions,
 } from "./types.js";
-export type { ApiClient, ApiClientOptions, RequestConfig } from "./apiClient.js";
+export type {
+  ApiClient,
+  ApiClientOptions,
+  RequestConfig,
+  MethodApiClient,
+  WriteMethodApiClient,
+} from "./apiClient.js";
 export type {
   AuthDataRequest,
   AuthDataStorage,
   AuthDataClientOptions,
   AuthDataResult,
+  AuthDataMethodRequest,
+  AuthDataMethodClientOptions,
 } from "./authData.js";
 
 // Convenience toast shortcuts

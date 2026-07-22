@@ -112,3 +112,83 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
  * calling `createApiClient()` yourself and naming the result (see README).
  */
 export const apiClient: ApiClient = createApiClient();
+
+/**
+ * A client that only exposes one HTTP verb. Useful when you want it to be
+ * obvious, at the import site, exactly what kind of request a component is
+ * allowed to make (e.g. a read-only component only ever imports the GET client).
+ */
+export interface MethodApiClient<T = unknown> {
+  /** The underlying axios instance, for anything not covered below. */
+  raw: AxiosInstance;
+  request(url: string, cfg?: RequestConfig): Promise<T>;
+}
+
+export interface WriteMethodApiClient<T = unknown> {
+  raw: AxiosInstance;
+  request(url: string, data?: unknown, cfg?: RequestConfig): Promise<T>;
+}
+
+/**
+ * Pre-built client whose only capability is GET. Import this into any
+ * component that only ever *reads* data.
+ *
+ *   import { createGetClient } from "snaparecord";
+ *   export const apiGetClient = createGetClient({ baseURL: "/api" });
+ *   const todo = await apiGetClient.request("/todos/1");
+ */
+export function createGetClient(options: ApiClientOptions = {}): MethodApiClient {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, cfg) => client.get(url, cfg),
+  };
+}
+
+/**
+ * Pre-built client whose only capability is POST. Import this into any
+ * component that only ever *creates* data.
+ *
+ *   import { createPostClient } from "snaparecord";
+ *   export const apiPostClient = createPostClient({ baseURL: "/api" });
+ *   await apiPostClient.request("/todos", { title: "New todo" });
+ */
+export function createPostClient(options: ApiClientOptions = {}): WriteMethodApiClient {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, data, cfg) => client.post(url, data, cfg),
+  };
+}
+
+/**
+ * Pre-built client whose only capability is PUT. Import this into any
+ * component that only ever *replaces/updates* data.
+ *
+ *   import { createPutClient } from "snaparecord";
+ *   export const apiPutClient = createPutClient({ baseURL: "/api" });
+ *   await apiPutClient.request("/todos/1", { title: "Updated todo" });
+ */
+export function createPutClient(options: ApiClientOptions = {}): WriteMethodApiClient {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, data, cfg) => client.put(url, data, cfg),
+  };
+}
+
+/**
+ * Pre-built client whose only capability is DELETE. Import this into any
+ * component that only ever *removes* data.
+ *
+ *   import { createDeleteClient } from "snaparecord";
+ *   export const apiDeleteClient = createDeleteClient({ baseURL: "/api" });
+ *   await apiDeleteClient.request("/todos/1");
+ */
+export function createDeleteClient(options: ApiClientOptions = {}): MethodApiClient {
+  const client = createApiClient(options);
+  return {
+    raw: client.raw,
+    request: (url, cfg) => client.delete(url, cfg),
+  };
+}
