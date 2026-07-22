@@ -20,10 +20,10 @@ export const authDataClient = createAuthDataClient({
   cacheTtlMs: 24 * 60 * 60 * 1000, // how long the local cache stays valid
   pollIntervalMs: 60 * 1000, // background refresh interval once startPolling() is called
 
-  onUpdate: (data) => {
+  onUpdate: (data: Record<string, unknown>) => {
     // EDIT ME: hook into analytics/logging if useful
   },
-  onError: (err) => {
+  onError: (err: unknown) => {
     // EDIT ME: send to your error tracker
   },
 });

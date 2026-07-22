@@ -27,7 +27,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "prepare": "node scripts/ensure-dist.cjs"
   },
   "keywords": [
     "toast",
