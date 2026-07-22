@@ -8,3 +8,4 @@ node_modules/
 # Editor/OS cruft
 .DS_Store
 *.log
+*.zip

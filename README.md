@@ -42,14 +42,16 @@ git clone https://github.com/Lazytech15/snaparecord.git
 
 Then copy `dist/` (and `src/toast.css`) into your project and import from
 that path directly, editing whatever request shapes/endpoints you need per
-project.
-
-Either way, install the two runtime dependencies alongside it if your
-project doesn't already have them:
+project. Since you're copying files instead of installing the package, also
+install its two runtime dependencies yourself:
 
 ```bash
 npm install axios jose
 ```
+
+(Option A doesn't need this step — `axios` and `jose` are regular
+dependencies of the package, so they're installed automatically along with
+it.)
 
 Import the (optional but recommended) stylesheet once, anywhere in your app:
 
