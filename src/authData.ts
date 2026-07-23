@@ -46,6 +46,18 @@ export interface AuthDataClientOptions {
   onUpdate?: (data: Record<string, unknown>) => void;
   /** Called with the normalized error whenever a fetch/poll fails. */
   onError?: (error: unknown) => void;
+  /**
+   * Dedupe/batch key used for the ONE toast shown when this bundle fails —
+   * see `errorHandler`'s `handleError`. Individual endpoints inside
+   * `requests` never toast on their own (they're fetched with `silent: true`
+   * by default); only the bundle as a whole does, so N failing endpoints in
+   * one bundle still produce a single toast, and repeated bundle failures
+   * (e.g. every poll tick) batch into that one toast's "xN" counter instead
+   * of flooding new toasts. Defaults to `authdata:${storageKey}` — set this
+   * explicitly if you run more than one AuthDataClient with the same
+   * storageKey and want their failures kept separate.
+   */
+  errorDedupeKey?: string;
 }
 
 export interface AuthDataResult {
@@ -99,6 +111,7 @@ export class AuthDataClient {
   private readonly storageKey: string;
   private readonly onUpdate?: (data: Record<string, unknown>) => void;
   private readonly onError?: (error: unknown) => void;
+  private readonly errorDedupeKey: string;
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private inFlight: Promise<AuthDataResult> | null = null;
@@ -117,6 +130,7 @@ export class AuthDataClient {
     this.storageKey = options.storageKey ?? DEFAULT_STORAGE_KEY;
     this.onUpdate = options.onUpdate;
     this.onError = options.onError;
+    this.errorDedupeKey = options.errorDedupeKey ?? `authdata:${this.storageKey}`;
   }
 
   /**
@@ -150,7 +164,11 @@ export class AuthDataClient {
         return { data, fromCache: false, fetchedAt };
       })
       .catch((err) => {
-        const normalized = handleError(err, { silent: true });
+        // silent:false here is what actually shows the toast — this is the
+        // ONE toast for the whole bundle. Its dedupeKey means repeated
+        // bundle failures (e.g. back-to-back poll ticks) bump this same
+        // toast's "xN" counter instead of stacking a new one each time.
+        const normalized = handleError(err, { dedupeKey: this.errorDedupeKey });
         this.onError?.(normalized);
         throw normalized;
       })
@@ -204,6 +222,12 @@ export class AuthDataClient {
           params: req.params,
           data: req.data,
           ...req.config,
+          // Each endpoint in the bundle is silent by default: a failure here
+          // is reported once for the whole bundle (see refresh()'s catch),
+          // not once per endpoint. Set `config: { silent: false }` on a
+          // specific request if you deliberately want it to toast on its own
+          // in addition to the bundle-level toast.
+          silent: req.config?.silent ?? true,
         });
         return [req.key, result] as const;
       })

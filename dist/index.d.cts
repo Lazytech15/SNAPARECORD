@@ -239,6 +239,18 @@ interface AuthDataClientOptions {
     onUpdate?: (data: Record<string, unknown>) => void;
     /** Called with the normalized error whenever a fetch/poll fails. */
     onError?: (error: unknown) => void;
+    /**
+     * Dedupe/batch key used for the ONE toast shown when this bundle fails —
+     * see `errorHandler`'s `handleError`. Individual endpoints inside
+     * `requests` never toast on their own (they're fetched with `silent: true`
+     * by default); only the bundle as a whole does, so N failing endpoints in
+     * one bundle still produce a single toast, and repeated bundle failures
+     * (e.g. every poll tick) batch into that one toast's "xN" counter instead
+     * of flooding new toasts. Defaults to `authdata:${storageKey}` — set this
+     * explicitly if you run more than one AuthDataClient with the same
+     * storageKey and want their failures kept separate.
+     */
+    errorDedupeKey?: string;
 }
 interface AuthDataResult {
     data: Record<string, unknown>;
@@ -264,6 +276,7 @@ declare class AuthDataClient {
     private readonly storageKey;
     private readonly onUpdate?;
     private readonly onError?;
+    private readonly errorDedupeKey;
     private pollTimer;
     private inFlight;
     constructor(options: AuthDataClientOptions);

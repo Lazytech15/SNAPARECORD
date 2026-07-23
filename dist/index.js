@@ -459,6 +459,7 @@ var AuthDataClient = class {
     this.storageKey = options.storageKey ?? DEFAULT_STORAGE_KEY;
     this.onUpdate = options.onUpdate;
     this.onError = options.onError;
+    this.errorDedupeKey = options.errorDedupeKey ?? `authdata:${this.storageKey}`;
   }
   /**
    * Returns the AuthData bundle. Serves instantly from the verified local cache when it's
@@ -487,7 +488,7 @@ var AuthDataClient = class {
       this.onUpdate?.(data);
       return { data, fromCache: false, fetchedAt };
     }).catch((err) => {
-      const normalized = handleError(err, { silent: true });
+      const normalized = handleError(err, { dedupeKey: this.errorDedupeKey });
       this.onError?.(normalized);
       throw normalized;
     }).finally(() => {
@@ -532,7 +533,13 @@ var AuthDataClient = class {
           method: req.method ?? "GET",
           params: req.params,
           data: req.data,
-          ...req.config
+          ...req.config,
+          // Each endpoint in the bundle is silent by default: a failure here
+          // is reported once for the whole bundle (see refresh()'s catch),
+          // not once per endpoint. Set `config: { silent: false }` on a
+          // specific request if you deliberately want it to toast on its own
+          // in addition to the bundle-level toast.
+          silent: req.config?.silent ?? true
         });
         return [req.key, result];
       })
