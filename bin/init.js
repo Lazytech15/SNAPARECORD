@@ -13,7 +13,7 @@
 //   npx snaparecord init --backend firebase   (also auto-installs firebase)
 //   npx snaparecord init --backend firebase --no-install   (skip the auto-install)
 
-import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -55,7 +55,37 @@ function detectPackageManager(cwd) {
   return "npm";
 }
 
-/** Runs `<pm> add <packages>` (or npm's `install`) in the consumer's project root, streaming output live. */
+/**
+ * Every backend template uses `import.meta.env.VITE_*` (base URL, cache
+ * secret, Supabase/Firebase config). That only type-checks if the consumer
+ * project has Vite's ambient types referenced — normally via a
+ * `src/vite-env.d.ts` containing `/// <reference types="vite/client" />`,
+ * which `create-vite` scaffolds by default but hand-rolled/older projects
+ * may be missing. Without it, TS reports "Property 'env' does not exist on
+ * type 'ImportMeta'" even though the code and the install are both fine.
+ *
+ * This only CREATES the file if nothing already provides that reference —
+ * it never touches an existing vite-env.d.ts (or any other .d.ts that
+ * already references vite/client somewhere in the project).
+ */
+function ensureViteEnvTypes(cwd, dir) {
+  const alreadyProvided = (() => {
+    const candidates = [
+      join(cwd, dir, "vite-env.d.ts"),
+      join(cwd, "src", "vite-env.d.ts"),
+      join(cwd, "vite-env.d.ts"),
+    ];
+    return candidates.some((p) => existsSync(p) && readFileSync(p, "utf8").includes("vite/client"));
+  })();
+  if (alreadyProvided) return null;
+
+  const target = join(cwd, dir, "vite-env.d.ts");
+  if (existsSync(target)) return null; // exists but didn't reference vite/client — don't clobber it, just leave it alone
+
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `/// <reference types="vite/client" />\n`);
+  return target;
+}
 function installPackages(cwd, packages) {
   const pm = detectPackageManager(cwd);
   const addCmd = pm === "npm" ? "install" : "add";
@@ -118,6 +148,11 @@ function runInit(args) {
   if (!results.copied.length && !results.skipped.length) {
     console.log("Nothing to copy.");
     return;
+  }
+
+  const viteEnvCreated = ensureViteEnvTypes(process.cwd(), args.dir);
+  if (viteEnvCreated) {
+    console.log(`\nCreated ${relative(process.cwd(), viteEnvCreated)} (needed for import.meta.env types).`);
   }
 
   const backendNotes = {
