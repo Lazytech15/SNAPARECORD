@@ -12,6 +12,12 @@ interface ShowToastParams {
     title?: string;
     type?: ToastType;
     duration?: number;
+    /**
+     * When two toasts share the same key while the first is still visible,
+     * the second one won't stack a new toast — it bumps a "xN" counter on
+     * the existing one instead and refreshes its auto-dismiss timer.
+     */
+    key?: string;
 }
 interface FriendlyMessage {
     title: string;
@@ -47,8 +53,14 @@ interface AxiosLikeInterceptor {
 
 /** Configure global defaults for all toasts. */
 declare function configureToast(options?: ToastOptions): void;
-/** Show a toast notification. Returns the toast id, usable with dismissToast(). */
-declare function showToast({ message, title, type, duration, }: ShowToastParams): string | null;
+/**
+ * Show a toast notification. Returns the toast id, usable with dismissToast().
+ *
+ * Pass `key` to coalesce repeats: if a toast with the same key is still
+ * visible, this bumps its "xN" counter and refreshes its timer instead of
+ * stacking a new, visually-identical toast on top of it.
+ */
+declare function showToast({ message, title, type, duration, key, }: ShowToastParams): string | null;
 /** Manually dismiss a toast by id. */
 declare function dismissToast(id: string | null): void;
 /** Remove all currently visible toasts. */
@@ -68,7 +80,11 @@ declare function normalizeError(err: unknown, customMessage?: string): Normalize
  * error, thrown Error) and shows a friendly toast instead of the raw error.
  */
 declare function handleError(err: unknown, opts?: HandleErrorOptions): NormalizedError;
-/** Clears the internal duplicate-suppression cache. Mostly useful for tests. */
+/**
+ * @deprecated No longer needed — batching is now driven by whether a toast
+ * for that key is still on screen (see toast.ts), not a time-based cache.
+ * Kept as a no-op so existing imports don't break.
+ */
 declare function clearErrorCache(): void;
 /**
  * Wraps the native fetch so any non-ok response or network failure

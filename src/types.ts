@@ -18,6 +18,12 @@ export interface ShowToastParams {
   title?: string;
   type?: ToastType;
   duration?: number;
+  /**
+   * When two toasts share the same key while the first is still visible,
+   * the second one won't stack a new toast — it bumps a "xN" counter on
+   * the existing one instead and refreshes its auto-dismiss timer.
+   */
+  key?: string;
 }
 
 export interface FriendlyMessage {

@@ -13,6 +13,8 @@ var ICONS = {
   warning: "!",
   info: "i"
 };
+var activeByKey = /* @__PURE__ */ new Map();
+var keyById = /* @__PURE__ */ new Map();
 function ensureContainer() {
   if (container && document.body.contains(container)) return container;
   container = document.createElement("div");
@@ -31,11 +33,22 @@ function showToast({
   message,
   title,
   type = "info",
-  duration
+  duration,
+  key
 }) {
   if (typeof document === "undefined") {
     console.log(`[toast:${type}] ${title ? title + " - " : ""}${message}`);
     return null;
+  }
+  if (key) {
+    const existing = activeByKey.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.countEl.textContent = `\xD7${existing.count}`;
+      existing.countEl.style.display = "inline-block";
+      existing.restart();
+      return existing.id;
+    }
   }
   const el = ensureContainer();
   const id = `fte-toast-${++idCounter}`;
@@ -49,16 +62,17 @@ function showToast({
   toastEl.innerHTML = `
     ${iconHtml}
     <div class="fte-toast-body">
-      ${title ? `<div class="fte-toast-title"></div>` : ""}
+      ${title ? `<div class="fte-toast-title"><span class="fte-toast-title-text"></span><span class="fte-toast-count" style="display:none"></span></div>` : ""}
       <div class="fte-toast-message"></div>
     </div>
     <button class="fte-toast-close" aria-label="Dismiss">&times;</button>
     ${finalDuration > 0 ? `<div class="fte-toast-progress"><div class="fte-toast-progress-bar"></div></div>` : ""}
   `;
   if (title) {
-    toastEl.querySelector(".fte-toast-title").textContent = title;
+    toastEl.querySelector(".fte-toast-title-text").textContent = title;
   }
   toastEl.querySelector(".fte-toast-message").textContent = message;
+  const countEl = toastEl.querySelector(".fte-toast-count");
   toastEl.querySelector(".fte-toast-close").addEventListener(
     "click",
     () => {
@@ -94,16 +108,40 @@ function showToast({
       progressBar.style.transform = computedTransform;
     }
   };
+  const restart = () => {
+    if (finalDuration <= 0) return;
+    if (dismissTimer) {
+      clearTimeout(dismissTimer);
+      dismissTimer = null;
+    }
+    remaining = finalDuration;
+    if (progressBar) {
+      progressBar.style.transition = "none";
+      progressBar.style.transform = "scaleX(1)";
+      void progressBar.offsetWidth;
+    }
+    startTimer();
+  };
   if (finalDuration > 0) {
     toastEl.addEventListener("mouseenter", pauseTimer);
     toastEl.addEventListener("mouseleave", startTimer);
     requestAnimationFrame(() => requestAnimationFrame(startTimer));
+  }
+  if (key) {
+    const record = { id, count: 1, el: toastEl, countEl, duration: finalDuration, restart };
+    activeByKey.set(key, record);
+    keyById.set(id, key);
   }
   return id;
 }
 function dismissToast(id) {
   if (!id || typeof document === "undefined") return;
   const el = document.getElementById(id);
+  const key = keyById.get(id);
+  if (key) {
+    activeByKey.delete(key);
+    keyById.delete(id);
+  }
   if (!el) return;
   el.setAttribute("data-visible", "false");
   setTimeout(() => el.remove(), 200);
@@ -199,7 +237,6 @@ var DEFAULT_ERROR_MESSAGES = {
 
 // src/errorHandler.ts
 var messageMap = { ...DEFAULT_ERROR_MESSAGES };
-var errorCache = /* @__PURE__ */ new Map();
 var dedupeWindowMs = 3e3;
 var logger = null;
 var onError = null;
@@ -247,16 +284,6 @@ function normalizeError(err, customMessage) {
     raw: err
   };
 }
-function shouldSuppressDuplicate(cacheKey) {
-  if (!cacheKey || dedupeWindowMs <= 0) return false;
-  const now = Date.now();
-  const last = errorCache.get(cacheKey);
-  if (last && now - last < dedupeWindowMs) {
-    return true;
-  }
-  errorCache.set(cacheKey, now);
-  return false;
-}
 function handleError(err, opts = {}) {
   const normalized = normalizeError(err, opts.customMessage);
   if (opts.title) normalized.title = opts.title;
@@ -274,18 +301,16 @@ function handleError(err, opts = {}) {
   }
   if (!suppressed && !opts.silent) {
     const dedupeKey = opts.dedupeKey ?? String(normalized.status);
-    if (!shouldSuppressDuplicate(dedupeKey)) {
-      showToast({
-        type: normalized.severity,
-        title: normalized.title,
-        message: normalized.message
-      });
-    }
+    showToast({
+      type: normalized.severity,
+      title: normalized.title,
+      message: normalized.message,
+      key: dedupeWindowMs > 0 ? dedupeKey : void 0
+    });
   }
   return normalized;
 }
 function clearErrorCache() {
-  errorCache.clear();
 }
 function wrapFetch(fetchImpl = typeof fetch !== "undefined" ? fetch : void 0) {
   if (!fetchImpl) {

@@ -11,7 +11,9 @@ import type {
 } from "./types.js";
 
 let messageMap: ErrorMessageMap = { ...DEFAULT_ERROR_MESSAGES };
-let errorCache = new Map<string, number>(); // key -> timestamp, used to dedupe/suppress repeat toasts
+// > 0 enables batching repeats of the same error (by dedupeKey) into a single
+// toast with an "xN" counter, for as long as that toast stays on screen.
+// 0 disables batching, so every failure gets its own toast.
 let dedupeWindowMs = 3000;
 let logger: ConfigureErrorHandlerOptions["logger"] | null = null;
 let onError: ConfigureErrorHandlerOptions["onError"] | null = null;
@@ -81,16 +83,7 @@ export function normalizeError(err: unknown, customMessage?: string): Normalized
   };
 }
 
-function shouldSuppressDuplicate(cacheKey?: string): boolean {
-  if (!cacheKey || dedupeWindowMs <= 0) return false;
-  const now = Date.now();
-  const last = errorCache.get(cacheKey);
-  if (last && now - last < dedupeWindowMs) {
-    return true;
-  }
-  errorCache.set(cacheKey, now);
-  return false;
-}
+
 
 /**
  * Main entry point: takes any raw error (HTTP status, fetch Response, axios
@@ -117,22 +110,28 @@ export function handleError(err: unknown, opts: HandleErrorOptions = {}): Normal
 
   if (!suppressed && !opts.silent) {
     const dedupeKey = opts.dedupeKey ?? String(normalized.status);
-    if (!shouldSuppressDuplicate(dedupeKey)) {
-      showToast({
-        type: normalized.severity,
-        title: normalized.title,
-        message: normalized.message,
-      });
-    }
+    // Pass the key through to showToast() so a repeat of the same failure,
+    // while the previous toast for it is still on screen, bumps that
+    // toast's "xN" counter and refreshes its timer instead of stacking a
+    // visually-identical duplicate. Set dedupeWindowMs to 0 to opt out and
+    // always show a separate toast per failure.
+    showToast({
+      type: normalized.severity,
+      title: normalized.title,
+      message: normalized.message,
+      key: dedupeWindowMs > 0 ? dedupeKey : undefined,
+    });
   }
 
   return normalized;
 }
 
-/** Clears the internal duplicate-suppression cache. Mostly useful for tests. */
-export function clearErrorCache(): void {
-  errorCache.clear();
-}
+/**
+ * @deprecated No longer needed — batching is now driven by whether a toast
+ * for that key is still on screen (see toast.ts), not a time-based cache.
+ * Kept as a no-op so existing imports don't break.
+ */
+export function clearErrorCache(): void {}
 
 /**
  * Wraps the native fetch so any non-ok response or network failure
