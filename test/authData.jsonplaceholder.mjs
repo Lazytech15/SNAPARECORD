@@ -17,6 +17,7 @@ const authData = createAuthDataClient({
     { key: "user", url: "/users/1" },
   ],
   jwtSecret: "replace-with-a-real-secret",
+  getAuthToken: () => "fake-session-token", // pretend we're always logged in for this test
   cacheTtlMs: 2000, // shortened just for this test
   pollIntervalMs: 3000, // shortened just for this test
   onUpdate: (data) => console.log("onUpdate ->", JSON.stringify(data)),

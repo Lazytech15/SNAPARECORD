@@ -25,6 +25,22 @@ export interface AuthDataClientOptions {
   /** The api client (from createApiClient) used to perform the requests. Its getAuthToken
    *  is what attaches `Authorization: Bearer <jwt>` to every outgoing request. */
   client: ApiClient;
+  /**
+   * Returns the current session/auth token, or a falsy value when there's no
+   * logged-in session. Required — this is what lets AuthDataClient decide
+   * *for itself* whether it's allowed to fetch, instead of every app having
+   * to hand-write that check before calling `getData()`/`startPolling()`.
+   *
+   * While this returns falsy: `getData()` resolves immediately with empty
+   * data and never touches the network or the cache, and `startPolling()`
+   * ticks are silent no-ops. As soon as it starts returning a token again
+   * (e.g. right after your login call sets it), the very next `getData()`
+   * or poll tick fetches for real — no need to restart polling or
+   * re-trigger anything. This is almost always the same function you pass
+   * as `getAuthToken` to the `client`'s `createApiClient(...)` — reuse it
+   * rather than writing a second one.
+   */
+  getAuthToken: () => string | null | undefined;
   /** The endpoints to fetch together as one logical "AuthData" bundle. */
   requests: AuthDataRequest[];
   /** Symmetric secret used to ENCRYPT the cached payload (A256GCM, via JWE). Never sent over the
@@ -64,7 +80,13 @@ export interface AuthDataResult {
   data: Record<string, unknown>;
   /** True if this result came from the signed local cache instead of a network call. */
   fromCache: boolean;
-  fetchedAt: number;
+  fetchedAt: number | null;
+  /**
+   * False when `getAuthToken()` returned no token for this call — in that
+   * case `data` is `{}`, `fromCache` is `false`, and no request (and no
+   * cache read) was made at all.
+   */
+  authenticated: boolean;
 }
 
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
@@ -98,11 +120,16 @@ function resolveDefaultStorage(): AuthDataStorage {
  * before it ever touches storage (so cached data can't be read or tampered with as plain
  * JSON), caches it for `cacheTtlMs` so repeat loads are instant, and can optionally poll
  * the server on a fixed interval without ever letting two fetches overlap.
+ *
+ * Nothing is ever fetched, polled, or read from cache while `getAuthToken()` returns a
+ * falsy value — so it's safe to call `getData()`/`startPolling()` unconditionally on app
+ * start; this class does the "is there actually a session?" check for you.
  */
 export class AuthDataClient {
   private readonly client: ApiClient;
   private readonly requests: AuthDataRequest[];
   private readonly jwtSecret: string;
+  private readonly getAuthToken: () => string | null | undefined;
   private secretKey: Uint8Array | null = null;
   private secretKeyPromise: Promise<Uint8Array> | null = null;
   private readonly cacheTtlMs: number;
@@ -120,10 +147,17 @@ export class AuthDataClient {
     if (!options?.client) throw new Error("AuthDataClient requires an api `client`.");
     if (!options?.requests?.length) throw new Error("AuthDataClient requires a non-empty `requests` array.");
     if (!options?.jwtSecret) throw new Error("AuthDataClient requires a `jwtSecret` to sign the cache.");
+    if (typeof options?.getAuthToken !== "function") {
+      throw new Error(
+        "AuthDataClient requires a `getAuthToken` function, so it knows whether a session exists " +
+          "before fetching or polling — pass the same function you use as `getAuthToken` on the client's createApiClient(...)."
+      );
+    }
 
     this.client = options.client;
     this.requests = options.requests;
     this.jwtSecret = options.jwtSecret;
+    this.getAuthToken = options.getAuthToken;
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.storage = options.storage ?? resolveDefaultStorage();
@@ -137,12 +171,19 @@ export class AuthDataClient {
    * Returns the AuthData bundle. Serves instantly from the verified local cache when it's
    * still fresh; otherwise fetches all requests from the server, caches, and returns them.
    * Pass `{ force: true }` to always hit the server (e.g. after login/logout).
+   *
+   * If `getAuthToken()` currently returns a falsy value, this resolves immediately with
+   * `{ data: {}, fromCache: false, fetchedAt: null, authenticated: false }` and touches
+   * neither the network nor the cache.
    */
   async getData(opts: { force?: boolean } = {}): Promise<AuthDataResult> {
+    if (!this.getAuthToken()) {
+      return { data: {}, fromCache: false, fetchedAt: null, authenticated: false };
+    }
     if (!opts.force) {
       const cached = await this.readCache();
       if (cached) {
-        return { data: cached.data, fromCache: true, fetchedAt: cached.fetchedAt };
+        return { data: cached.data, fromCache: true, fetchedAt: cached.fetchedAt, authenticated: true };
       }
     }
     return this.refresh();
@@ -154,6 +195,9 @@ export class AuthDataClient {
    * firing duplicate calls at the server.
    */
   async refresh(): Promise<AuthDataResult> {
+    if (!this.getAuthToken()) {
+      return { data: {}, fromCache: false, fetchedAt: null, authenticated: false };
+    }
     if (this.inFlight) return this.inFlight;
 
     this.inFlight = this.fetchAll()
@@ -161,7 +205,7 @@ export class AuthDataClient {
         const fetchedAt = Date.now();
         await this.writeCache({ data, fetchedAt });
         this.onUpdate?.(data);
-        return { data, fromCache: false, fetchedAt };
+        return { data, fromCache: false, fetchedAt, authenticated: true };
       })
       .catch((err) => {
         // silent:false here is what actually shows the toast — this is the
@@ -187,6 +231,7 @@ export class AuthDataClient {
   startPolling(): void {
     if (this.pollTimer) return;
     this.pollTimer = setInterval(() => {
+      if (!this.getAuthToken()) return; // no session — nothing to poll for yet
       if (this.inFlight) return; // previous tick still running — skip, don't queue up
       this.refresh().catch(() => {
         /* already reported via onError inside refresh() */
@@ -324,6 +369,7 @@ function createMethodLockedAuthDataClient(
  *     client: authApi,
  *     requests: [{ key: "todo", url: "/todos/1" }, { key: "user", url: "/users/1" }],
  *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *     getAuthToken: () => sessionToken.get(),
  *   });
  */
 export function createGetAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
@@ -339,6 +385,7 @@ export function createGetAuthDataClient(options: AuthDataMethodClientOptions): A
  *     client: authApi,
  *     requests: [{ key: "createTodo", url: "/todos", data: { title: "New todo" } }],
  *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *     getAuthToken: () => sessionToken.get(),
  *   });
  */
 export function createPostAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
@@ -354,6 +401,7 @@ export function createPostAuthDataClient(options: AuthDataMethodClientOptions): 
  *     client: authApi,
  *     requests: [{ key: "updateTodo", url: "/todos/1", data: { title: "Updated" } }],
  *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *     getAuthToken: () => sessionToken.get(),
  *   });
  */
 export function createPutAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {
@@ -369,6 +417,7 @@ export function createPutAuthDataClient(options: AuthDataMethodClientOptions): A
  *     client: authApi,
  *     requests: [{ key: "deleteTodo", url: "/todos/1" }],
  *     jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
+ *     getAuthToken: () => sessionToken.get(),
  *   });
  */
 export function createDeleteAuthDataClient(options: AuthDataMethodClientOptions): AuthDataClient {

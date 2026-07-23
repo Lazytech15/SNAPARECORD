@@ -19,6 +19,7 @@ client.request = async (cfg) => {
   return null;
 };
 
+let loggedIn = true;
 const authData = createAuthDataClient({
   client,
   requests: [
@@ -26,10 +27,22 @@ const authData = createAuthDataClient({
     { key: "permissions", url: "/permissions" },
   ],
   jwtSecret: "replace-with-a-real-secret",
+  getAuthToken: () => (loggedIn ? "fake-session-token" : null),
   cacheTtlMs: 2000, // shortened just for this test
   pollIntervalMs: 100, // shortened just for this test
   onUpdate: (data) => console.log("onUpdate ->", JSON.stringify(data)),
 });
+
+loggedIn = false;
+const r0 = await authData.getData();
+console.log(
+  "0) getData with no session — authenticated:",
+  r0.authenticated,
+  "| calls:",
+  callCount,
+  "(should be false / 0)"
+);
+loggedIn = true;
 
 const r1 = await authData.getData();
 console.log("1) first getData — hits network:", r1.fromCache, "| calls:", callCount);

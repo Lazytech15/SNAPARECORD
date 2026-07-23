@@ -510,9 +510,15 @@ var AuthDataClient = class {
     if (!options?.client) throw new Error("AuthDataClient requires an api `client`.");
     if (!options?.requests?.length) throw new Error("AuthDataClient requires a non-empty `requests` array.");
     if (!options?.jwtSecret) throw new Error("AuthDataClient requires a `jwtSecret` to sign the cache.");
+    if (typeof options?.getAuthToken !== "function") {
+      throw new Error(
+        "AuthDataClient requires a `getAuthToken` function, so it knows whether a session exists before fetching or polling \u2014 pass the same function you use as `getAuthToken` on the client's createApiClient(...)."
+      );
+    }
     this.client = options.client;
     this.requests = options.requests;
     this.jwtSecret = options.jwtSecret;
+    this.getAuthToken = options.getAuthToken;
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.storage = options.storage ?? resolveDefaultStorage();
@@ -525,12 +531,19 @@ var AuthDataClient = class {
    * Returns the AuthData bundle. Serves instantly from the verified local cache when it's
    * still fresh; otherwise fetches all requests from the server, caches, and returns them.
    * Pass `{ force: true }` to always hit the server (e.g. after login/logout).
+   *
+   * If `getAuthToken()` currently returns a falsy value, this resolves immediately with
+   * `{ data: {}, fromCache: false, fetchedAt: null, authenticated: false }` and touches
+   * neither the network nor the cache.
    */
   async getData(opts = {}) {
+    if (!this.getAuthToken()) {
+      return { data: {}, fromCache: false, fetchedAt: null, authenticated: false };
+    }
     if (!opts.force) {
       const cached = await this.readCache();
       if (cached) {
-        return { data: cached.data, fromCache: true, fetchedAt: cached.fetchedAt };
+        return { data: cached.data, fromCache: true, fetchedAt: cached.fetchedAt, authenticated: true };
       }
     }
     return this.refresh();
@@ -541,12 +554,15 @@ var AuthDataClient = class {
    * firing duplicate calls at the server.
    */
   async refresh() {
+    if (!this.getAuthToken()) {
+      return { data: {}, fromCache: false, fetchedAt: null, authenticated: false };
+    }
     if (this.inFlight) return this.inFlight;
     this.inFlight = this.fetchAll().then(async (data) => {
       const fetchedAt = Date.now();
       await this.writeCache({ data, fetchedAt });
       this.onUpdate?.(data);
-      return { data, fromCache: false, fetchedAt };
+      return { data, fromCache: false, fetchedAt, authenticated: true };
     }).catch((err) => {
       const normalized = handleError(err, { dedupeKey: this.errorDedupeKey });
       this.onError?.(normalized);
@@ -564,6 +580,7 @@ var AuthDataClient = class {
   startPolling() {
     if (this.pollTimer) return;
     this.pollTimer = setInterval(() => {
+      if (!this.getAuthToken()) return;
       if (this.inFlight) return;
       this.refresh().catch(() => {
       });
