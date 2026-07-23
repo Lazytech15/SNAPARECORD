@@ -81,6 +81,8 @@ backend" and "data safely sitting in the user's browser."
   the user
 - `npx snaparecord init` scaffolds an editable starter setup (API client,
   AuthDataClient, React context) instead of hiding it behind a black box
+- `--backend supabase`/`--backend firebase` scaffold that same starter setup
+  wired to Supabase/Firestore instead of REST, auto-installing the SDK
 
 ---
 
@@ -138,23 +140,52 @@ together with polling), run:
 npx snaparecord init
 ```
 
+By default this scaffolds the plain REST/axios template. Pass `--backend` to
+scaffold one wired for Supabase or Firebase instead — the package needed
+(`@supabase/supabase-js` or `firebase`) is installed for you automatically:
+
+```bash
+npx snaparecord init --backend php        # default — REST via axios
+npx snaparecord init --backend supabase   # also runs: <npm|yarn|pnpm|bun> add @supabase/supabase-js
+npx snaparecord init --backend firebase   # also runs: <npm|yarn|pnpm|bun> add firebase
+```
+
+All three flags scaffold the same **public shape** —
+`authApi`, `authGetClient`, `<AuthProvider>`/`useAuth()` — only the transport
+underneath differs, so the rest of your app (components, `EditPostForm`
+example, etc.) never needs to know which backend is in use. See
+[Using the Supabase/Firebase templates](#using-the-supabasefirebase-templates)
+below for what's different about those two and how to wire them up.
+
+Other flags:
+
+- `--dir <path>` — scaffold somewhere other than `src/` (default: `src`)
+- `--force` — overwrite files that already exist at the destination
+- `--no-install` — skip the automatic package install (Supabase/Firebase
+  only); prints the manual `install`/`add` command instead
+
 This copies editable starter files into your project:
 
 ```
 src/
   api/
-    sessionToken.ts     # holds the live auth token (memory by default)
-    authApi.ts           # createApiClient() — EDIT: baseURL, onError
-    authDataClient.ts     # createAuthDataClient() — EDIT: requests, cache/poll timing
+    sessionToken.ts       # holds the live auth token (memory by default)
+    authApi.ts             # createApiClient() — EDIT: baseURL, onError
+                            # (Supabase/Firebase: an ApiClient-shaped adapter instead — see below)
+    authDataClient.ts       # createAuthDataClient() — EDIT: requests, cache/poll timing
+    supabaseClient.ts       # (--backend supabase only) the one supabase-js client
+    firebaseClient.ts       # (--backend firebase only) initializeApp + auth + firestore
   contexts/
-    AuthContext.tsx        # <AuthProvider> — EDIT: user shape, login() request/response
+    AuthContext.tsx          # <AuthProvider> — EDIT: user shape, login() request/response
+  components/
+    EditPostForm.tsx          # example: mutate + refresh() the cache
+  vite-env.d.ts                # created if missing — needed for import.meta.env types
 ```
 
 Nothing here is generated at runtime or hidden — it's a plain starting point
 meant to be opened and adjusted to your backend's actual endpoints and
 response shapes. Re-running `init` skips files that already exist; add
-`--force` to overwrite, or `--dir <path>` to scaffold somewhere other than
-`src/`.
+`--force` to overwrite.
 
 After scaffolding, wrap your app once:
 
@@ -167,6 +198,107 @@ import { AuthProvider } from "./contexts/AuthContext";
 ```
 
 and consume it anywhere with `useAuth()`.
+
+## Using the Supabase/Firebase templates
+
+`AuthDataClient` (caching, JWE encryption, polling) is identical across all
+three backends — it only ever calls `client.request({ url, method, params,
+data })`. What changes per backend is `authApi.ts`: instead of axios hitting
+real HTTP URLs, it's a small adapter that translates that same shape into
+Supabase/Firestore calls, so nothing downstream (`authDataClient.ts`,
+`AuthContext.tsx`, the encrypted cache) has to change.
+
+### Supabase (`--backend supabase`)
+
+1. Set your project's env vars (`.env`):
+   ```
+   VITE_SUPABASE_URL=https://xxxxx.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   VITE_AUTH_CACHE_SECRET=some-long-random-string   # still needed — encrypts the local cache
+   ```
+2. `authApi.ts`'s adapter maps `{ url, method, params, data }` onto
+   `supabase.from(table)...`:
+
+   | Field | Meaning |
+   |---|---|
+   | `url` | table (or view) name, e.g. `"profiles"` |
+   | `params.select` | columns to select (default `"*"`) |
+   | `params.eq` | `{ column: value }` equality filters |
+   | `params.single` | `true` to unwrap a single row instead of an array |
+   | `params.orderBy` | `[column, { ascending }]` |
+   | `params.limit` | row limit |
+   | `data` | row(s) to insert/update, for `POST`/`PUT`/`PATCH` |
+
+   ```ts
+   { key: "profile", url: "profiles", params: { eq: { id: userId }, single: true } }
+   authApi.post("posts", { title, body, user_id: userId })
+   authApi.put("posts", { title }, { params: { eq: { id: postId } } })
+   ```
+3. `sessionToken.ts` mirrors Supabase's own (async) session into a sync
+   value via `supabase.auth.onAuthStateChange` — don't call
+   `sessionToken.set()`/`clear()` yourself, they're no-ops on purpose. Always
+   go through `supabase.auth.signInWithPassword(...)` /
+   `supabase.auth.signOut()` (already wired in `AuthContext.tsx`).
+4. Prefer Postgres RLS (`USING (id = auth.uid())`) over hardcoding the
+   current user's id into `authDataClient.ts`'s `requests` — that array is
+   built once, before the user's id is known, so a literal `eq: { id: ... }`
+   there is a placeholder you'll want to replace or route around with RLS.
+
+### Firebase (`--backend firebase`)
+
+1. Set your project's env vars (`.env`), from the Firebase console:
+   ```
+   VITE_FIREBASE_API_KEY=...
+   VITE_FIREBASE_AUTH_DOMAIN=...
+   VITE_FIREBASE_PROJECT_ID=...
+   VITE_FIREBASE_STORAGE_BUCKET=...
+   VITE_FIREBASE_MESSAGING_SENDER_ID=...
+   VITE_FIREBASE_APP_ID=...
+   VITE_AUTH_CACHE_SECRET=some-long-random-string   # still needed — encrypts the local cache
+   ```
+2. `authApi.ts`'s adapter maps `{ url, method, params, data }` onto
+   Firestore calls:
+
+   | Field | Meaning |
+   |---|---|
+   | `url` | `"collection"` for a query, or `"collection/docId"` for a single doc |
+   | `params.where` | `[field, operator, value][]`, e.g. `[["userId", "==", uid]]` |
+   | `params.orderBy` | `[field, "asc" \| "desc"]` |
+   | `params.limit` | doc limit |
+   | `data` | fields to write, for `POST`/`PUT`/`PATCH` |
+
+   ```ts
+   { key: "profile", url: `profiles/${userId}` }
+   { key: "posts", url: "posts", params: { where: [["userId", "==", userId]], orderBy: ["createdAt", "desc"] } }
+   authApi.post("posts", { title, body, userId })
+   authApi.put(`posts/${postId}`, { title })
+   ```
+3. `sessionToken.ts` mirrors Firebase's ID token into a sync value via
+   `onIdTokenChanged` — same no-op-on-purpose `set()`/`clear()` as above.
+   Always use `signInWithEmailAndPassword(auth, ...)` / `signOut(auth)`
+   (already wired in `AuthContext.tsx`).
+4. `authDataClient.ts`'s `requests` array is also built once, before
+   `auth.currentUser` resolves — either scope access via Firestore security
+   rules keyed on `request.auth.uid` instead of a literal doc path, or
+   rebuild the client after `onAuthStateChanged` fires with the real uid.
+5. Firestore already has realtime listeners (`onSnapshot`) — prefer those
+   directly in a component for anything that needs to be truly live; use
+   this bundle's polling for things you'd rather pull on a timer instead.
+
+### If you hit `Cannot find module 'firebase/...'` or `'@supabase/supabase-js'`
+
+`init --backend supabase|firebase` installs the package automatically, but
+your editor's TypeScript server may still show stale "module not found"
+errors from before the install finished — restart it
+(`Ctrl+Shift+P` → "TypeScript: Restart TS Server") and it'll resolve.
+
+### If you hit `Property 'env' does not exist on type 'ImportMeta'`
+
+All three templates read config via `import.meta.env.VITE_*`, which needs
+Vite's ambient types referenced somewhere in your project — normally a
+`src/vite-env.d.ts` containing `/// <reference types="vite/client" />`.
+`init` creates this file automatically if nothing already provides that
+reference, but if you're seeing this on an older project, add it by hand.
 
 ## Quick start
 
