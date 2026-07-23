@@ -1,22 +1,88 @@
+<div align="center">
+
 # SNAPARECORD
 
-Universal, framework-agnostic toast notifications + error handling, written in
-TypeScript with full type declarations included (no `@types/*` package
-needed).
+**A secure, centralized data layer for your browser app.**
+Encrypted local cache · JWT-secured auth · centralized API client · toasts · background sync
 
-Instead of surfacing raw errors like `404`, `403`, `Failed to fetch`, or a stack
-trace to your users, this library maps them to clear, human-readable messages
-and displays them as a toast — with sane defaults out of the box and full
-override support.
+[![npm-free install](https://img.shields.io/badge/install-github-blue?logo=github)](https://github.com/Lazytech15/snaparecord)
+[![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Zero-config cache encryption](https://img.shields.io/badge/cache-AES--256--GCM-brightgreen)](#authdata-batched-encrypted-cached-polled-fetching)
+[![Framework agnostic](https://img.shields.io/badge/framework-agnostic-lightgrey)](#quick-start)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
 
-- Zero dependencies, works with plain JS, React, Vue, Svelte, etc.
-- Wraps `fetch` or `axios` so errors are handled automatically.
-- Built-in friendly messages for common HTTP status codes (400, 401, 403,
-  404, 408, 409, 413, 422, 429, 500, 502, 503, 504) plus network/timeout.
-- Fully overridable per-status or per-call custom messages.
-- Duplicate-error suppression so a burst of the same failure doesn't spam
-  the user with repeated toasts.
-- Optional logger/hook so you can still send raw errors to Sentry, etc.
+</div>
+
+---
+
+Most apps fetch data, dump it in `localStorage`, and hope nobody opens
+devtools. SNAPARECORD is built for the alternative: one centralized client
+that talks to your backend, encrypts what it caches, refreshes itself in the
+background, and tells the user in plain language when something goes wrong —
+instead of that logic being copy-pasted (or missing) in every component.
+
+## Why teams reach for this
+
+| | |
+|---|---|
+| 🔒 **Encrypted cache, always on** | Batched data is AES-256-GCM encrypted before it ever touches `localStorage` — unreadable *and* tamper-proof, no opt-out |
+| 🔁 **Background polling** | Keeps cached data fresh on an interval without ever stacking overlapping requests |
+| ⚡ **One fetch, not fifty** | A whole page's worth of endpoints load as a single batched request at login, cached until it expires |
+| 🍞 **Friendly errors, automatically** | 400/401/403/404/500-class errors become clear toasts instead of raw status codes or stack traces |
+| 🧩 **Plugs into any auth provider** | Supabase, Auth0, Google OAuth, or your own backend — it only needs a bearer token getter |
+| 🪶 **Framework agnostic** | Plain JS, React, Vue, Svelte — ships a React scaffold (`npx snaparecord init`) but isn't tied to it |
+
+## How the pieces fit together
+
+```
+ Your backend / Supabase (RLS enforced here)
+              │  HTTPS + Bearer token
+              ▼
+        authApi (createApiClient)
+   — direct, uncached, per-call requests —
+              │
+              ▼
+     AuthDataClient (authData)
+ — batches GETs at login, encrypts (AES-256-GCM)
+   before caching, polls every N seconds,
+   resets daily —
+              │
+              ▼
+        Your UI components
+   (reads from cache instantly, updates
+    live as polling/refresh land)
+```
+
+SNAPARECORD never talks to your database directly and doesn't replace
+row-level security — it's the layer between "data already authorized by your
+backend" and "data safely sitting in the user's browser."
+
+---
+
+## Full feature list
+
+- Centralized axios API client — one place for base URL, auth headers,
+  timeouts, and error handling (`createApiClient`)
+- Method-locked clients (`createGetClient`, `createPostClient`, ...) so a
+  read-only component can't accidentally import a delete-capable client
+- Batched multi-endpoint fetching with `AuthDataClient` — one login-time
+  call instead of N waterfall requests
+- Mandatory AES-256-GCM cache encryption (JWE) — no plaintext mode
+- Auth-tag verification on every cache read — corrupted or forged entries
+  are detected and discarded automatically
+- Configurable cache TTL (defaults to a daily reset) and poll interval
+  (defaults to 1 minute)
+- Non-overlapping polling — a slow tick is skipped, never queued
+- Manual `refresh()` hook so mutations elsewhere in the app can update the
+  cache on demand
+- Universal toast notifications with built-in friendly messages for common
+  HTTP status codes, fully overridable
+- Duplicate-error suppression so a burst of identical failures doesn't spam
+  the user
+- `npx snaparecord init` scaffolds an editable starter setup (API client,
+  AuthDataClient, React context) instead of hiding it behind a black box
+
+---
 
 ## Install
 
@@ -211,14 +277,17 @@ const posts = await apiClient.get("/posts");
 Each client exposes `get`, `post`, `put`, `patch`, `delete`, `request`, and
 `.raw` (the underlying axios instance, for anything not covered above).
 
-## AuthData: batched, JWT-signed, cached, polled fetching
+## AuthData: batched, encrypted, cached, polled fetching
 
 Plain `localStorage.setItem("authData", JSON.stringify(data))` has two
-problems: anyone with dev-tools access can read *and edit* it, and your app
-has no way to tell if it's been tampered with. `AuthDataClient` fixes both —
-it fetches several related endpoints as one batch, signs the combined result
-into a JWT before it's written to storage, and rejects (and silently
-discards) anything that comes back unsigned, expired, or tampered with.
+problems: anyone with dev-tools access (or an XSS payload) can **read** it,
+and anyone can **edit** it with no way for your app to tell. `AuthDataClient`
+fixes both, and always — there's no plaintext mode to opt out of. It fetches
+several related endpoints as one batch, then encrypts the combined result
+(AES-256-GCM, via a compact JWE) before it's ever written to storage. What
+sits in `localStorage` is ciphertext: unreadable without your secret, and
+authenticated, so a modified/forged entry fails to decrypt and is discarded
+rather than trusted.
 
 ```ts
 // api/authData.ts
@@ -226,17 +295,20 @@ import { authApi } from "./authApi.js";
 import { createAuthDataClient } from "snaparecord";
 
 export const authData = createAuthDataClient({
-  client: authApi, // reuses the client above, so `Authorization: Bearer <jwt>`
+  client: authApi, // reuses the client above, so `Authorization: Bearer <token>`
                     // is already attached to every one of these requests
   requests: [
     { key: "profile", url: "/me" },
     { key: "permissions", url: "/permissions" },
-    { key: "settings", url: "/settings" },
+    { key: "finance", url: "/finance/summary" },
+    { key: "operations", url: "/operations/status" },
   ],
-  // Signs/verifies the *cached* blob. Never sent to the server — keep it out
-  // of source control (env var) and it protects what sits in localStorage.
+  // Encrypts the *cached* blob (AES-256-GCM). Never sent to the server — keep
+  // it out of source control (env var), and never reuse your auth provider's
+  // token as this secret. Any string works; it's stretched into a proper
+  // 256-bit key internally, but longer/random is still better.
   jwtSecret: import.meta.env.VITE_AUTH_CACHE_SECRET,
-  cacheTtlMs: 24 * 60 * 60 * 1000, // 1 day (default) — repeat loads read the
+  cacheTtlMs: 24 * 60 * 60 * 1000, // 1 day (default) — repeat loads decrypt the
                                     // verified cache instantly instead of refetching
   pollIntervalMs: 60 * 1000,       // 1 minute (default)
   onUpdate: (data) => console.log("fresh AuthData:", data),
@@ -247,7 +319,7 @@ export const authData = createAuthDataClient({
 ```ts
 // on app start / after login
 const { data, fromCache } = await authData.getData();
-// data.profile, data.permissions, data.settings — one call, three endpoints
+// data.profile, data.permissions, data.finance, data.operations — one call, many endpoints
 
 // keep it fresh in the background, one request tick per minute, never
 // overlapping (a slow response just skips that tick instead of stacking up)
@@ -256,26 +328,62 @@ authData.startPolling();
 // force a real network refetch, e.g. right after login
 await authData.getData({ force: true });
 
+// after a mutation made via authApi that should be reflected in the cache
+await authData.refresh();
+
 // on logout
-authData.destroy(); // stops polling + clears the signed cache
+authData.destroy(); // stops polling + wipes the encrypted cache
 ```
 
 `createAuthDataClient(options)` accepts:
 
 | Option | Description |
 |---|---|
-| `client` | An `ApiClient` from `createApiClient` — supplies the JWT auth header and error handling |
+| `client` | An `ApiClient` from `createApiClient` — supplies the auth header and error handling |
 | `requests` | Array of `{ key, url, method?, params?, data?, config? }` endpoints to fetch as one batch |
-| `jwtSecret` | Symmetric secret (HS256) used to sign/verify the cached blob |
+| `jwtSecret` | Symmetric secret used to encrypt/decrypt the cached blob (A256GCM) |
 | `cacheTtlMs` | How long the cache stays valid (default: 1 day) |
 | `pollIntervalMs` | Interval between background poll ticks (default: 1 minute) |
 | `storage` | Web Storage–compatible store (default: `localStorage`, falls back to in-memory outside the browser) |
-| `storageKey` | Key the signed blob is stored under |
+| `storageKey` | Key the encrypted blob is stored under |
 | `onUpdate(data)` | Called with fresh data after every successful fetch (initial, forced, or polled) |
 | `onError(err)` | Called when a fetch/poll fails |
 
 `AuthDataClient` instance methods: `getData({ force? })`, `refresh()`,
 `startPolling()`, `stopPolling()`, `clearCache()`, `destroy()`.
+
+## How this fits with your auth provider / database
+
+SNAPARECORD doesn't replace your auth provider (Supabase Auth, Auth0, Google
+OAuth, your own backend) or your database's row-level security — it sits
+entirely in the browser, one layer downstream of both. It only needs one
+thing from whichever provider you use: a function that returns the current
+bearer token.
+
+```ts
+// Supabase
+getAuthToken: () => supabase.auth.getSession()?.data?.session?.access_token
+
+// Auth0
+getAuthToken: () => cachedAuth0Token // e.g. kept in sessionToken.ts, refreshed via getTokenSilently()
+
+// Google / any OIDC provider
+getAuthToken: () => googleIdToken
+```
+
+Division of responsibility:
+
+- **Your provider / RLS** decides *what* data a given user is allowed to
+  fetch — that's server-side authorization and doesn't change.
+- **SNAPARECORD** decides *how* that already-authorized data is fetched,
+  cached, and protected once it lands in the browser: encrypted at rest,
+  deduplicated across requests, and kept fresh via polling instead of being
+  refetched on every render.
+
+Use a separate secret for `jwtSecret` than whatever token your provider
+issues — they protect different things and shouldn't be interchangeable.
+
+
 
 ## Custom messages
 
@@ -337,7 +445,7 @@ configureToast({
 | `createAxiosErrorInterceptor(opts?)` | Axios response interceptor pair |
 | `createApiClient(options)` | Centralized axios client: base URL, auth header, error toasts |
 | `apiClient` | Ready-to-use default `createApiClient()` instance |
-| `createAuthDataClient(options)` / `AuthDataClient` | Batched, JWT-signed, cached, pollable multi-endpoint data client |
+| `createAuthDataClient(options)` / `AuthDataClient` | Batched, AES-256-GCM encrypted, cached, pollable multi-endpoint data client |
 | `DEFAULT_ERROR_MESSAGES` | The built-in status -> message map |
 
 ## Why cache/dedupe errors?

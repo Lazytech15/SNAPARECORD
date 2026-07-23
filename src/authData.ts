@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from "jose";
+import { EncryptJWT, jwtDecrypt } from "jose";
 import { handleError } from "./errorHandler.js";
 import type { ApiClient, RequestConfig } from "./apiClient.js";
 
@@ -27,8 +27,11 @@ export interface AuthDataClientOptions {
   client: ApiClient;
   /** The endpoints to fetch together as one logical "AuthData" bundle. */
   requests: AuthDataRequest[];
-  /** Symmetric secret used to sign/verify the cached payload (HS256). Never sent over the wire —
-   *  it only protects what sits in storage, so a tampered/forged cache entry is rejected on read. */
+  /** Symmetric secret used to ENCRYPT the cached payload (A256GCM, via JWE). Never sent over the
+   *  wire — it only protects what sits in browser storage. Encryption is always on: the cache is
+   *  never written as readable JSON, so it can't be read *or* tampered with from devtools/XSS
+   *  without this secret. Use a long random string (32+ chars) injected via env var — never
+   *  hardcode it in source. */
   jwtSecret: string;
   /** How long a cached bundle stays valid before it must be re-fetched. Default: 24h. */
   cacheTtlMs?: number;
@@ -87,7 +90,9 @@ function resolveDefaultStorage(): AuthDataStorage {
 export class AuthDataClient {
   private readonly client: ApiClient;
   private readonly requests: AuthDataRequest[];
-  private readonly secretKey: Uint8Array;
+  private readonly jwtSecret: string;
+  private secretKey: Uint8Array | null = null;
+  private secretKeyPromise: Promise<Uint8Array> | null = null;
   private readonly cacheTtlMs: number;
   private readonly pollIntervalMs: number;
   private readonly storage: AuthDataStorage;
@@ -105,7 +110,7 @@ export class AuthDataClient {
 
     this.client = options.client;
     this.requests = options.requests;
-    this.secretKey = new TextEncoder().encode(options.jwtSecret);
+    this.jwtSecret = options.jwtSecret;
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.storage = options.storage ?? resolveDefaultStorage();
@@ -206,31 +211,53 @@ export class AuthDataClient {
     return Object.fromEntries(entries);
   }
 
-  /** Signs `{ data, fetchedAt }` as an HS256 JWT (with a matching `exp`) before writing it to storage. */
-  private async writeCache(payload: CachedPayload): Promise<void> {
-    const expiresAt = Math.floor((payload.fetchedAt + this.cacheTtlMs) / 1000);
-    const jwt = await new SignJWT({ data: payload.data, fetchedAt: payload.fetchedAt })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime(expiresAt)
-      .sign(this.secretKey);
-    this.storage.setItem(this.storageKey, jwt);
+  /** Derives a proper 256-bit AES-GCM key from the (arbitrary-length) `jwtSecret` via SHA-256,
+   *  so callers don't need to hand-roll a correctly sized/entropy key themselves. Cached after
+   *  first use since digesting is async (WebCrypto) but the result never changes. */
+  private async getSecretKey(): Promise<Uint8Array> {
+    if (this.secretKey) return this.secretKey;
+    if (!this.secretKeyPromise) {
+      this.secretKeyPromise = crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(this.jwtSecret))
+        .then((digest) => {
+          this.secretKey = new Uint8Array(digest);
+          return this.secretKey;
+        });
+    }
+    return this.secretKeyPromise;
   }
 
-  /** Verifies the cached JWT's signature and expiry. Returns null (and clears it) if it's
-   *  missing, expired, or has been tampered with. */
+  /** Encrypts `{ data, fetchedAt }` into a compact JWE (A256GCM, direct key) before writing it to
+   *  storage. This is authenticated encryption: the payload is unreadable AND unforgeable without
+   *  the secret — unlike a plain signed JWT, nothing here is visible as plaintext in devtools,
+   *  localStorage, or to an XSS payload that can only read storage, not the secret. */
+  private async writeCache(payload: CachedPayload): Promise<void> {
+    const secretKey = await this.getSecretKey();
+    const expiresAt = Math.floor((payload.fetchedAt + this.cacheTtlMs) / 1000);
+    const jwe = await new EncryptJWT({ data: payload.data, fetchedAt: payload.fetchedAt })
+      .setProtectedHeader({ alg: "dir", enc: "A256GCM" })
+      .setIssuedAt()
+      .setExpirationTime(expiresAt)
+      .encrypt(secretKey);
+    this.storage.setItem(this.storageKey, jwe);
+  }
+
+  /** Decrypts and authenticates the cached JWE. Returns null (and clears it) if it's missing,
+   *  expired, or has been tampered with — a modified ciphertext fails the GCM auth tag check
+   *  before any data is ever produced, so corrupted/forged cache entries are never trusted. */
   private async readCache(): Promise<CachedPayload | null> {
-    const jwt = this.storage.getItem(this.storageKey);
-    if (!jwt) return null;
+    const jwe = this.storage.getItem(this.storageKey);
+    if (!jwe) return null;
 
     try {
-      const { payload } = await jwtVerify(jwt, this.secretKey);
+      const secretKey = await this.getSecretKey();
+      const { payload } = await jwtDecrypt(jwe, secretKey);
       return {
         data: payload.data as Record<string, unknown>,
         fetchedAt: payload.fetchedAt as number,
       };
     } catch {
-      // Expired, malformed, or signature mismatch — never trust it, just start clean.
+      // Expired, malformed, or auth-tag mismatch — never trust it, just start clean.
       this.storage.removeItem(this.storageKey);
       return null;
     }

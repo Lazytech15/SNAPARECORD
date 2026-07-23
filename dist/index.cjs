@@ -478,6 +478,8 @@ function resolveDefaultStorage() {
 }
 var AuthDataClient = class {
   constructor(options) {
+    this.secretKey = null;
+    this.secretKeyPromise = null;
     this.pollTimer = null;
     this.inFlight = null;
     if (!options?.client) throw new Error("AuthDataClient requires an api `client`.");
@@ -485,7 +487,7 @@ var AuthDataClient = class {
     if (!options?.jwtSecret) throw new Error("AuthDataClient requires a `jwtSecret` to sign the cache.");
     this.client = options.client;
     this.requests = options.requests;
-    this.secretKey = new TextEncoder().encode(options.jwtSecret);
+    this.jwtSecret = options.jwtSecret;
     this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.storage = options.storage ?? resolveDefaultStorage();
@@ -572,19 +574,38 @@ var AuthDataClient = class {
     );
     return Object.fromEntries(entries);
   }
-  /** Signs `{ data, fetchedAt }` as an HS256 JWT (with a matching `exp`) before writing it to storage. */
-  async writeCache(payload) {
-    const expiresAt = Math.floor((payload.fetchedAt + this.cacheTtlMs) / 1e3);
-    const jwt = await new import_jose.SignJWT({ data: payload.data, fetchedAt: payload.fetchedAt }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(expiresAt).sign(this.secretKey);
-    this.storage.setItem(this.storageKey, jwt);
+  /** Derives a proper 256-bit AES-GCM key from the (arbitrary-length) `jwtSecret` via SHA-256,
+   *  so callers don't need to hand-roll a correctly sized/entropy key themselves. Cached after
+   *  first use since digesting is async (WebCrypto) but the result never changes. */
+  async getSecretKey() {
+    if (this.secretKey) return this.secretKey;
+    if (!this.secretKeyPromise) {
+      this.secretKeyPromise = crypto.subtle.digest("SHA-256", new TextEncoder().encode(this.jwtSecret)).then((digest) => {
+        this.secretKey = new Uint8Array(digest);
+        return this.secretKey;
+      });
+    }
+    return this.secretKeyPromise;
   }
-  /** Verifies the cached JWT's signature and expiry. Returns null (and clears it) if it's
-   *  missing, expired, or has been tampered with. */
+  /** Encrypts `{ data, fetchedAt }` into a compact JWE (A256GCM, direct key) before writing it to
+   *  storage. This is authenticated encryption: the payload is unreadable AND unforgeable without
+   *  the secret — unlike a plain signed JWT, nothing here is visible as plaintext in devtools,
+   *  localStorage, or to an XSS payload that can only read storage, not the secret. */
+  async writeCache(payload) {
+    const secretKey = await this.getSecretKey();
+    const expiresAt = Math.floor((payload.fetchedAt + this.cacheTtlMs) / 1e3);
+    const jwe = await new import_jose.EncryptJWT({ data: payload.data, fetchedAt: payload.fetchedAt }).setProtectedHeader({ alg: "dir", enc: "A256GCM" }).setIssuedAt().setExpirationTime(expiresAt).encrypt(secretKey);
+    this.storage.setItem(this.storageKey, jwe);
+  }
+  /** Decrypts and authenticates the cached JWE. Returns null (and clears it) if it's missing,
+   *  expired, or has been tampered with — a modified ciphertext fails the GCM auth tag check
+   *  before any data is ever produced, so corrupted/forged cache entries are never trusted. */
   async readCache() {
-    const jwt = this.storage.getItem(this.storageKey);
-    if (!jwt) return null;
+    const jwe = this.storage.getItem(this.storageKey);
+    if (!jwe) return null;
     try {
-      const { payload } = await (0, import_jose.jwtVerify)(jwt, this.secretKey);
+      const secretKey = await this.getSecretKey();
+      const { payload } = await (0, import_jose.jwtDecrypt)(jwe, secretKey);
       return {
         data: payload.data,
         fetchedAt: payload.fetchedAt

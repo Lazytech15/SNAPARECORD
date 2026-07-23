@@ -204,8 +204,11 @@ interface AuthDataClientOptions {
     client: ApiClient;
     /** The endpoints to fetch together as one logical "AuthData" bundle. */
     requests: AuthDataRequest[];
-    /** Symmetric secret used to sign/verify the cached payload (HS256). Never sent over the wire —
-     *  it only protects what sits in storage, so a tampered/forged cache entry is rejected on read. */
+    /** Symmetric secret used to ENCRYPT the cached payload (A256GCM, via JWE). Never sent over the
+     *  wire — it only protects what sits in browser storage. Encryption is always on: the cache is
+     *  never written as readable JSON, so it can't be read *or* tampered with from devtools/XSS
+     *  without this secret. Use a long random string (32+ chars) injected via env var — never
+     *  hardcode it in source. */
     jwtSecret: string;
     /** How long a cached bundle stays valid before it must be re-fetched. Default: 24h. */
     cacheTtlMs?: number;
@@ -236,7 +239,9 @@ interface AuthDataResult {
 declare class AuthDataClient {
     private readonly client;
     private readonly requests;
-    private readonly secretKey;
+    private readonly jwtSecret;
+    private secretKey;
+    private secretKeyPromise;
     private readonly cacheTtlMs;
     private readonly pollIntervalMs;
     private readonly storage;
@@ -273,10 +278,18 @@ declare class AuthDataClient {
     /** Stops polling and clears the cache. Call on logout/unmount. */
     destroy(): void;
     private fetchAll;
-    /** Signs `{ data, fetchedAt }` as an HS256 JWT (with a matching `exp`) before writing it to storage. */
+    /** Derives a proper 256-bit AES-GCM key from the (arbitrary-length) `jwtSecret` via SHA-256,
+     *  so callers don't need to hand-roll a correctly sized/entropy key themselves. Cached after
+     *  first use since digesting is async (WebCrypto) but the result never changes. */
+    private getSecretKey;
+    /** Encrypts `{ data, fetchedAt }` into a compact JWE (A256GCM, direct key) before writing it to
+     *  storage. This is authenticated encryption: the payload is unreadable AND unforgeable without
+     *  the secret — unlike a plain signed JWT, nothing here is visible as plaintext in devtools,
+     *  localStorage, or to an XSS payload that can only read storage, not the secret. */
     private writeCache;
-    /** Verifies the cached JWT's signature and expiry. Returns null (and clears it) if it's
-     *  missing, expired, or has been tampered with. */
+    /** Decrypts and authenticates the cached JWE. Returns null (and clears it) if it's missing,
+     *  expired, or has been tampered with — a modified ciphertext fails the GCM auth tag check
+     *  before any data is ever produced, so corrupted/forged cache entries are never trusted. */
     private readCache;
 }
 /** Convenience factory, mirroring `createApiClient`. */
